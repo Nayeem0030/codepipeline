@@ -1,0 +1,312 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: 
+  Cloud distribution
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: (Required) Frontend bucket name.
+  S3BucketRegion:
+    Type: String
+    Description: (Required) Frontend bucket's region.
+  TagStackType:
+    Type: String
+    Default: POC 
+    Description: (Required) Enter poc, dev uat prod. Default is poc.
+    AllowedValues:
+      - POC
+      - Development
+      - UAT
+      - Production
+
+Resources: 
+# The following will create a cloudfrontOriginAccessIdentity resource
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 
+            Fn::Join:
+              - ''
+              -
+                -  Ref: S3BucketName
+                -  's3'
+                -  Ref: S3BucketRegion
+                -  'amazonaws.com'
+# The following will create a CloudFront Distribution and attach to s3 bucket with access id as input
+  CloudDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+        - DomainName:
+            Fn::Join:
+              - ''
+              - 
+                 -  Ref: S3BucketName
+                 -  's3'
+                 -  Ref: S3BucketRegion
+                 -  'amazonaws.com'
+                 #  -.s3.amazonaws.com
+          Id:
+            Fn::Join:
+              - ''
+              -
+                - 'S3'   
+                - Ref: S3BucketName
+
+          S3OriginConfig:
+            OriginAccessIdentity:
+              Fn::Join:
+                - ''
+                -
+                  - 'origin-access-identity/cloudfront/'
+                  -  Ref: CloudFrontOAI
+        Enabled: true 
+        Comment: MYproject frontend cloud distribution 
+        DefaultRootObject: index.html
+        CacheBehaviors:
+        - CachePolicyId: !Ref WebAppBucketCachePolicyCoreinfra
+          OriginRequestPolicyId: !Ref WebAppBucketOriginPolicyCoreinfra
+          PathPattern: '*'
+          TargetOriginId:
+              Fn::Join:
+                - ''
+                -
+                  -  's3'
+                  - Ref: S3BucketName
+
+          AllowedMethods:
+            # - DELETE
+            - GET 
+            - HEAD 
+            # - OPTIONS
+            # - PATCH
+            # - POST
+            # - PUT
+          CachedMethods:
+            - GET 
+            - HEAD 
+            #  - OPTIONS
+          Compress: FALSE
+          DefaultTTL: 3600 # in seconds
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+          ViewerProtocolPolicy: redirect-to-https
+          #LambdaFunctionAssociations:
+            #-
+              #EventType: viewer-response
+              #IncludeBody: false
+              #LambdaFunctionARN: '{{resolve:ssm:/myproject/cfd/edge-lambda/headers/ARN}}'
+          # Logging:
+          #   IncludeCookies: 'false'
+          #   Bucket: mylogs.s3.amazonaws.com
+          #   Prefix: myprefix
+        HttpVersion: http2
+        CustomErrorResponses:
+            -
+              ErrorCachingMinTTL: 0
+              ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+            -
+              ErrorCachingMinTTL: 0
+              ErrorCode: 500
+              ResponseCode: 500
+              ResponsePagePath: /error.html
+                  
+            -  ErrorCachingMinTTL: 0
+               ErrorCode: 500
+               ResponseCode: 502
+               ResponsePagePath: /error.html
+        DefaultCacheBehavior:
+            AllowedMethods:
+              # - DELETE
+                - GET 
+                - HEAD 
+              # - OPTIONS
+              # - PATCH
+              # - POST
+              # - PUT
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            DefaultTTL: 3600
+            TargetOriginId:
+              Fn::Join:
+                - ''
+                -
+                  - 'S3-'
+                  - Ref: S3BucketName
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+            ViewerProtocolPolicy: redirect-to-https
+        PriceClass: PriceClass_All
+      Tags:
+        - Key: Name
+          Value: "Frontend cloud distribution"
+        - Key: Purpose
+          Value: Cloudfront is web service that speeds up distribution of your static and dynamic web content
+        - Key: Role
+          Value: To serve static and dynamic web content for myproject  
+        - Key: Stack
+          Value: !Ref TagStackType
+        - Key: Application Support
+          Value: chinmay 
+        - Key: PID
+          Value: "91604280"
+        - Key: Owner
+          Value: chinmay
+        - Key: Owner Supervisor
+          Value: chinmay@aiolos.cloud
+        - Key: Project Name
+          Value: lilac
+        - Key: Business Vertical
+          Value: TAS  
+        - Key: SDO Code
+          Value: '1001'
+        - Key: Service Type
+          Value: 'PAAS'
+        - Key: Provisioning SR
+          Value: NA
+        - Key: Deployment Type
+          Value: CICD
+        - Key: Region
+          Value: !Sub "${AWS::Region}"
+        - Key: Vendor
+          Value: AWS
+
+
+
+
+# The following will attach access policy to bucket using cloudfrontoriginaccessindentity
+  WebAppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3BucketName
+      PolicyDocument:
+        Statement:
+        - Action: s3:GetObject
+          Effect: Allow
+          Principal:
+            Canonicaluser:
+              Fn::GetAtt: [ CloudFrontOAI , S3CanonicalUserId ]
+          Resource:
+            Fn::Join:
+                - ''
+                -
+                  - 'arn:aws:S3:::'
+                  -  Ref: S3BucketName
+                  -  '/*'   
+
+  # The following will attach cache policy to cloudfrontdistribution
+  WebAppBucketCachePolicyCoreinfra:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+          Comment: "myprojectCoreinfra-cache-policy2"
+          DefaultTTL: 300
+          MaxTTL: 300
+          MinTTL: 1
+          Name: 
+              Fn::Join: 
+              - ''
+              -
+                - 'myprojectCoreinfra-cache-policy'
+                - Ref: CloudFrontOAI
+
+          ParametersInCacheKeyAndForwardedToOrigin:
+           CookiesConfig:
+             CookieBehavior: 'none'
+           EnableAcceptEncodingBrotli: true
+           EnableAcceptEncodingGzip: true
+           HeadersConfig:
+              HeaderBehavior: 'none'
+           QueryStringsConfig:
+             QueryStringBehavior: "none"    
+
+
+  WebAppBucketOriginPolicyCoreinfra:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Comment: "myprojectCoreinfra-origin-CORS-S3origin-policy2"
+        CookiesConfig:
+          CookieBehavior: 'none'
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers:
+            - origin
+            - access-control-request-headers
+            -  access-control-request-method
+
+        Name:
+            Fn::Join:
+              - ''
+              -
+                - 'myprojectCoreinfra-origin-CORS-S3origin-policy'
+                - Ref: CloudFrontOAI
+        QueryStringsConfig:
+          QueryStringBehavior: "none"
+
+
+  CloudfrontDistributionARN:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cloudfront/distribution/ARN'
+      Type: String
+      Value: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudDistribution}'
+      Tags:
+        Name: "/cloudfront/distribution/ARN"
+        PID: "91604280"
+        Owner: "chinmay"
+        Owner Supervisor: chinmay
+        Purpose: cloud front distribution ARN to create invaliddations or any other purpose
+        Role:   cloud front distribution ARN to create invaliddations or any other purpose
+        Project Name: myproject
+        Business Vertical: TAS 
+        Stack: !Ref TagStackType
+        Application support: nayeem@aiolos.cloud
+        SDO Code: "1001"
+        CC Code: "1001"
+        Service Type: PAAS 
+        Provisioning SR: NA 
+        Deployment Type: CI/CD 
+        Region: !Sub "${AWS::Region}"
+        Vendor: AWS
+
+  CloudfrontDistributionID:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/myproject/cloudfront/distribution/ID'
+      Type: String 
+      Value: !Ref CloudDistribution
+      Tags:
+        Name: "/myproject/Cloudfront/distribution/ID"
+        PID: "91604280"
+        Owner: "chinmay"
+        Owner Supervisor: chinmay
+        Purpose: cloud front distribution ARN to create invaliddations or any other purpose
+        Role:   cloud front distribution ARN to create invaliddations or any other purpose
+        Project Name: myproject
+        Business Vertical: TAS 
+        Stack: !Ref TagStackType
+        Application support: nayeem@aiolos.cloud
+        SDO Code: "1001"
+        CC Code: "1001"
+        Service Type: PAAS 
+        Provisioning SR: NA 
+        Deployment Type: CI/CD 
+        Region: !Sub "${AWS::Region}"
+        Vendor: AWS       
+
+
+
+
+
